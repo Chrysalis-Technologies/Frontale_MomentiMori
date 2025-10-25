@@ -63,8 +63,10 @@ def scan_items():
 def write_index(items):
     data_json = json.dumps(items, ensure_ascii=False)
     css = """body{margin:0;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b0c10;color:#eee}
-header{padding:12px 16px;background:#111;position:sticky;top:0;z-index:3;border-bottom:1px solid #222}
+header{padding:12px 16px;background:#111;position:sticky;top:0;z-index:3;border-bottom:1px solid #222;display:flex;align-items:center;justify-content:space-between;gap:12px}
 h1{margin:0;font-size:18px}
+.cta{color:#fff;background:#2d7cff;border-radius:999px;padding:8px 16px;text-decoration:none;font-size:13px;font-weight:600;transition:background .2s}
+.cta:hover{background:#3c8bff}
 main{padding:12px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
 .card{cursor:pointer;border-radius:8px;overflow:hidden;background:#151515}
@@ -111,7 +113,7 @@ lb.addEventListener('click',e=>{{ if(e.target===lb) close(); }});
     html = f"""<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{TITLE}</title><style>{css}</style></head>
-<body><header><h1>{TITLE}</h1></header><main><div id="grid" class="grid"></div></main>
+<body><header><h1>{TITLE}</h1><a class="cta" href="/upload">Share a Memory</a></header><main><div id="grid" class="grid"></div></main>
 <div id="lb" class="lb"><div class="inner" id="lb-inner"></div></div>
 <div class="controls">
   <button id="prev" aria-label="Previous">⟨ Prev</button>

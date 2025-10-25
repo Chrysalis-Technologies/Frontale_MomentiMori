@@ -20,9 +20,28 @@ app/                # Docker build context (builder + entrypoint)
   requirements.txt
 media/              # Place photos/videos here (gitignored, .gitkeep tracked)
 site/               # Generated HTML/css/thumb cache (gitignored, .gitkeep tracked)
-docker-compose.yml  # Builds/starts the memorial-gallery service
-README.md
+ docker-compose.yml  # Builds/starts the memorial-gallery service
+ README.md
 ```
+
+### Required environment variables
+
+Create a `.env` file (not committed) in the repo root before running Compose. These
+values are injected into the container via the `env_file` stanza and are available
+to future automation or auxiliary upload services:
+
+```
+APPLICATION_CLIENT_ID=...
+APPLICATION_OBJECT_ID=...
+DIRECTORY_TENANT_ID=...
+FRONTALE_UPLOADER_SECRET=...
+FRONTALE_SECRET_ID=...
+UPLOAD_TARGET_USER_UPN=paul@marzocchi.tech
+PUBLIC_BASE_URL=https://frontale.marzocchi.tech
+```
+
+Add or adjust keys as needed—the container will receive every entry defined in
+`.env`.
 
 ## Usage
 
@@ -40,6 +59,19 @@ README.md
    ```powershell
    docker compose down
    ```
+
+4. **Invite uploads**
+   - Owner portal: `https://<your-host>/upload`
+   - Guest portal: `https://<your-host>/share/upload`
+   - Live carousel of raw uploads: `https://<your-host>/gallery`
+   - Static, thumbnail-optimized gallery remains at the site root (`/`).
+
+### Azure Graph integration
+
+If `APPLICATION_CLIENT_ID`, `FRONTALE_UPLOADER_SECRET`, `DIRECTORY_TENANT_ID`, and
+`UPLOAD_TARGET_USER_UPN` are populated, each upload is also copied into the target
+user's OneDrive via Microsoft Graph (folder defaults to `MemorialGalleryUploads`).
+Leave those fields blank to keep everything local.
 
 ### Deploying to a public host
 

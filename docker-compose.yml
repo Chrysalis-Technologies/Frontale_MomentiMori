@@ -5,12 +5,14 @@ services:
       context: ./app
     ports:
       - "8010:8080"
+    env_file:
+      - .env
     environment:
       - TITLE=Memorial Gallery
       - THUMBNAIL_MAX_PX=480
       - DISPLAY_MAX_PX=1280
       - SLIDESHOW_INTERVAL_SEC=6
     volumes:
-      - ./media:/data/media:ro
+      - ./media:/data/media
       - ./site:/app/site
     restart: unless-stopped

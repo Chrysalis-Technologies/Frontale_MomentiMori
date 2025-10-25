@@ -1,0 +1,397 @@
+Task Intake Form
+
+Objective (single sentence):
+Ship a Dockerized memorial gallery (photos + videos + slideshow) that builds thumbnails at container start and serves a responsive, world‑reachable site.
+
+Primary deliverables:
+
+Dockerfile + entrypoint that: build → serve.
+
+docker-compose.yml with one-volume mount for your media.
+
+Minimal gallery builder (Pillow), responsive grid, lightbox, slideshow (vanilla JS).
+
+Orchestrator commands wired into your existing registry.
+
+Hard constraints:
+
+Local-only tooling; CLI; absolute Windows paths; Python 3.11; pinned deps; no telemetry.
+
+Root: C:\Users\PaulMarzocchi\Vivarium\Orchestrator\
+
+Reuse existing pins and registry; add new ones without altering prior entries.
+
+External dependencies:
+
+Docker Desktop (Windows). No cloud required to build/run; deploy to any host that supports Docker.
+
+Interfaces (CLI commands to expose):
+
+orchestrator run gallery-docker-init – scaffold everything (app, Dockerfile, compose).
+
+orchestrator run gallery-docker-up – build + run container.
+
+orchestrator run gallery-docker-down – stop/remove container.
+
+orchestrator run gallery-docker-rebuild – rebuild image from scratch.
+
+Acceptance tests:
+
+With some media in projects\memorial-gallery\media\, run gallery-docker-up; visit http://localhost:8010/ (and from another device via your host IP).
+
+Grid renders; clicking opens a lightbox; “Play” advances through items.
+
+Stopping container removes it cleanly.
+
+Risks & mitigations:
+
+Large media → slow first build: thumbnails are generated once at container start and cached in the image’s writable layer.
+
+Videos: Browser compatibility varies; MP4/H.264/AAC is safest.
+
+Internet sharing beyond your LAN requires running the container on a public host or reverse proxy; that’s deployment, not code.
+
+Plan (WBS)
+
+Run 1 – Docker Scaffolding (this run)
+Scaffold project, write builder, HTML/CSS/JS, Dockerfile, entrypoint, compose, and add orchestrator commands.
+
+Run 2 – Integration & Tests
+Bring it up, smoke test, mobile check, and optional tweaks (custom domain, reverse proxy notes).
+
+DO — Run 1: Docker Scaffolding
+
+This run creates all files, updates the registry, and logs the change. It does not start Docker yet.
+
+Files created/updated (full content)
+
+A) PowerShell: C:\Users\PaulMarzocchi\Vivarium\Orchestrator\scripts\gallery_docker_init.ps1
+
+# gallery_docker_init.ps1
+# Scaffolds a Dockerized memorial gallery project and registers CLI commands.
+$ErrorActionPreference = "Stop"
+
+$Root = "C:\Users\PaulMarzocchi\Vivarium\Orchestrator"
+$Scripts = Join-Path $Root "scripts"
+$Projects = Join-Path $Root "projects"
+$Proj = Join-Path $Projects "memorial-gallery"
+$App = Join-Path $Proj "app"
+$Media = Join-Path $Proj "media"
+$Site = Join-Path $Proj "site"
+$Logs = Join-Path $Root "logs"
+$RegistryPath = Join-Path $Root "registry\commands.json"
+$ComposePath = Join-Path $Proj "docker-compose.yml"
+$DockerfilePath = Join-Path $App "Dockerfile"
+$ReqPath = Join-Path $App "requirements.txt"
+$BuilderPy = Join-Path $App "build_gallery.py"
+$Entry = Join-Path $App "entrypoint.sh"
+$UpPS1 = Join-Path $Scripts "gallery_docker_up.ps1"
+$DownPS1 = Join-Path $Scripts "gallery_docker_down.ps1"
+$RebuildPS1 = Join-Path $Scripts "gallery_docker_rebuild.ps1"
+
+# Ensure dirs
+$null = New-Item -ItemType Directory -Force -Path $Scripts,$Projects,$Proj,$App,$Media,$Site,$Logs
+
+# Write app/requirements.txt
+@'
+Pillow==10.4.0
+Jinja2==3.1.4
+PyYAML==6.0.2
+'@ | Out-File -Encoding UTF8 -FilePath $ReqPath -Force
+
+# Write app/build_gallery.py
+@'
+import os, sys, json, re, shutil, hashlib
+from pathlib import Path
+from PIL import Image, ImageOps
+
+MEDIA_DIR = os.getenv("MEDIA_DIR", "/data/media")
+SITE_DIR = os.getenv("SITE_DIR", "/app/site")
+TITLE = os.getenv("TITLE", "Memorial Gallery")
+THUMB = int(os.getenv("THUMBNAIL_MAX_PX", "480"))
+DISPLAY = int(os.getenv("DISPLAY_MAX_PX", "1280"))
+SLIDE = int(os.getenv("SLIDESHOW_INTERVAL_SEC", "6"))
+
+IMG_EXT = {".jpg",".jpeg",".png",".bmp",".gif",".webp"}
+VID_EXT = {".mp4",".webm",".mov",".m4v",".avi"}
+
+def ensure_dirs():
+    Path(SITE_DIR).mkdir(parents=True, exist_ok=True)
+    for d in ("thumbs","images","videos"):
+        Path(SITE_DIR, d).mkdir(parents=True, exist_ok=True)
+
+def safe_name(p: Path) -> str:
+    base = re.sub(r"[^A-Za-z0-9._-]+", "_", p.stem)
+    h = hashlib.sha1(str(p).encode("utf-8")).hexdigest()[:8]
+    return f"{base}_{h}"
+
+def process_image(src: Path):
+    name = safe_name(src)
+    img = Image.open(src)
+    img = ImageOps.exif_transpose(img).convert("RGB")
+    d = img.copy(); d.thumbnail((DISPLAY, DISPLAY))
+    t = img.copy(); t.thumbnail((THUMB, THUMB))
+    disp = Path(SITE_DIR,"images",f"{name}.jpg")
+    thum = Path(SITE_DIR,"thumbs",f"{name}.jpg")
+    d.save(disp, "JPEG", quality=85, optimize=True)
+    t.save(thum, "JPEG", quality=80, optimize=True)
+    return {"type":"image","title":src.stem,
+            "src":str(disp.relative_to(SITE_DIR)).replace("\\","/"),
+            "thumb":str(thum.relative_to(SITE_DIR)).replace("\\","/")}
+
+def process_video(src: Path):
+    name = safe_name(src) + src.suffix.lower()
+    dst = Path(SITE_DIR,"videos",name)
+    shutil.copy2(src, dst)
+    return {"type":"video","title":src.stem,
+            "src":str(dst.relative_to(SITE_DIR)).replace("\\","/"),
+            "thumb":""}
+
+def scan_items():
+    items=[]
+    root = Path(MEDIA_DIR)
+    if not root.exists():
+        return items
+    for p in root.rglob("*"):
+        if not p.is_file(): continue
+        ext = p.suffix.lower()
+        try:
+            if ext in IMG_EXT: items.append(process_image(p))
+            elif ext in VID_EXT: items.append(process_video(p))
+        except Exception as e:
+            print(f"Skipping {p}: {e}", file=sys.stderr)
+    items.sort(key=lambda x: x["title"].lower())
+    return items
+
+def write_index(items):
+    data_json = json.dumps(items, ensure_ascii=False)
+    css = """body{margin:0;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b0c10;color:#eee}
+header{padding:12px 16px;background:#111;position:sticky;top:0;z-index:3;border-bottom:1px solid #222}
+h1{margin:0;font-size:18px}
+main{padding:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.card{cursor:pointer;border-radius:8px;overflow:hidden;background:#151515}
+.card img,.card video{width:100%;height:160px;object-fit:cover;display:block}
+.card .label{padding:6px 8px;font-size:12px;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lb{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:10}
+.lb.show{display:flex}
+.lb .inner{max-width:95vw;max-height:90vh;text-align:center}
+.lb img,.lb video{max-width:95vw;max-height:85vh}
+.controls{position:fixed;bottom:16px;left:0;right:0;display:flex;gap:8px;justify-content:center}
+button{background:#222;color:#ddd;border:1px solid #333;border-radius:6px;padding:8px 12px;font-size:14px;cursor:pointer}
+button:hover{background:#2a2a2a}"""
+    js = f"""const DATA=JSON.parse(document.getElementById('data').textContent);
+const INTERVAL={SLIDE}*1000;
+const grid=document.getElementById('grid');
+const lb=document.getElementById('lb'), inner=document.getElementById('lb-inner');
+const btnPrev=document.getElementById('prev'), btnNext=document.getElementById('next');
+const btnPlay=document.getElementById('play'), btnClose=document.getElementById('close');
+let idx=-1,timer=null;
+function node(html){{const t=document.createElement('template');t.innerHTML=html.trim();return t.content.firstChild;}}
+function card(it,i){{
+  const media = it.type==='image' ? `<img loading="lazy" src="${{it.thumb||it.src}}" alt="">`
+                                  : `<video preload="metadata" src="${{it.src}}"></video>`;
+  const el=node(`<div class="card" data-i="${{i}}">${{media}}<div class="label">${{it.title}}</div></div>`);
+  el.onclick=()=>open(i); return el;
+}}
+DATA.forEach((it,i)=>grid.appendChild(card(it,i)));
+function open(i){{
+  idx=(i+DATA.length)%DATA.length;
+  const it=DATA[idx];
+  inner.innerHTML = it.type==='image' ? `<img src="${{it.src}}" alt="">`
+                                      : `<video src="${{it.src}}" controls autoplay></video>`;
+  lb.classList.add('show');
+}}
+function close(){{lb.classList.remove('show'); stop();}}
+function next(){{open(idx+1);}}
+function prev(){{open(idx-1);}}
+function play(){{ if(timer){{stop();}} else {{timer=setInterval(next,INTERVAL); btnPlay.textContent='Pause';}}}}
+function stop(){{ if(timer){{clearInterval(timer); timer=null;}} btnPlay.textContent='Play';}}
+btnNext.onclick=next; btnPrev.onclick=prev; btnPlay.onclick=play; btnClose.onclick=close;
+window.addEventListener('keydown',e=>{{ if(e.key==='Escape') close(); if(e.key==='ArrowRight') next(); if(e.key==='ArrowLeft') prev(); }});
+lb.addEventListener('click',e=>{{ if(e.target===lb) close(); }});
+"""
+    html = f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{TITLE}</title><style>{css}</style></head>
+<body><header><h1>{TITLE}</h1></header><main><div id="grid" class="grid"></div></main>
+<div id="lb" class="lb"><div class="inner" id="lb-inner"></div></div>
+<div class="controls">
+  <button id="prev" aria-label="Previous">⟨ Prev</button>
+  <button id="play" aria-label="Play/Pause">Play</button>
+  <button id="next" aria-label="Next">Next ⟩</button>
+  <button id="close" aria-label="Close">Close ✕</button>
+</div>
+<script id="data" type="application/json">{data_json}</script>
+<script>{js}</script></body></html>"""
+    Path(SITE_DIR,"index.html").write_text(html, encoding="utf-8")
+
+def main():
+    ensure_dirs()
+    items = scan_items()
+    write_index(items)
+    print(f"Built {len(items)} items into {SITE_DIR}")
+
+if __name__=="__main__":
+    if "--dry-run" in sys.argv:
+        ensure_dirs(); print(f"DRY RUN: would scan {MEDIA_DIR} and write {SITE_DIR}"); sys.exit(0)
+    main()
+'@ | Out-File -Encoding UTF8 -FilePath $BuilderPy -Force
+
+# Write app/entrypoint.sh
+@'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${MEDIA_DIR:=/data/media}"
+: "${SITE_DIR:=/app/site}"
+python /app/build_gallery.py
+exec python -m http.server 8080 -d "$SITE_DIR"
+'@ | Out-File -Encoding ASCII -FilePath $Entry -Force
+# Ensure LF endings for shell script
+(Get-Content $Entry) | Set-Content -Encoding Ascii $Entry
+
+# Write app/Dockerfile
+@'
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+COPY . /app/
+RUN chmod +x /app/entrypoint.sh
+ENV MEDIA_DIR=/data/media \
+    SITE_DIR=/app/site \
+    TITLE="Memorial Gallery" \
+    THUMBNAIL_MAX_PX=480 \
+    DISPLAY_MAX_PX=1280 \
+    SLIDESHOW_INTERVAL_SEC=6
+EXPOSE 8080
+ENTRYPOINT ["/app/entrypoint.sh"]
+'@ | Out-File -Encoding UTF8 -FilePath $DockerfilePath -Force
+
+# Write project-level docker-compose.yml (absolute Windows paths with forward slashes)
+$HostMedia = "C:/Users/PaulMarzocchi/Vivarium/Orchestrator/projects/memorial-gallery/media"
+$HostSite  = "C:/Users/PaulMarzocchi/Vivarium/Orchestrator/projects/memorial-gallery/site"
+@"
+version: "3.8"
+services:
+  memorial-gallery:
+    build:
+      context: $($App -replace '\\','/')
+    ports:
+      - "8010:8080"
+    environment:
+      - TITLE=Memorial Gallery
+      - THUMBNAIL_MAX_PX=480
+      - DISPLAY_MAX_PX=1280
+      - SLIDESHOW_INTERVAL_SEC=6
+    volumes:
+      - "$HostMedia:/data/media:ro"
+      - "$HostSite:/app/site"
+    restart: unless-stopped
+"@ | Out-File -Encoding UTF8 -FilePath $ComposePath -Force
+
+# Write helper scripts (up/down/rebuild)
+@"
+param([string]\$Mode="run",[switch]\$DryRun)
+\$Compose = "$ComposePath"
+\$Cmd = "docker compose -f `"\$Compose`" up -d --build"
+if (\$DryRun) { Write-Host "[DRY] \$Cmd"; exit 0 }
+Write-Host \$Cmd; iex \$Cmd
+Write-Host "Open: http://localhost:8010/"
+"@ | Out-File -Encoding UTF8 -FilePath $UpPS1 -Force
+
+@"
+param([switch]\$DryRun)
+\$Compose = "$ComposePath"
+\$Cmd = "docker compose -f `"\$Compose`" down"
+if (\$DryRun) { Write-Host "[DRY] \$Cmd"; exit 0 }
+Write-Host \$Cmd; iex \$Cmd
+"@ | Out-File -Encoding UTF8 -FilePath $DownPS1 -Force
+
+@"
+param([switch]\$NoCache,[switch]\$DryRun)
+\$Compose = "$ComposePath"
+\$Cmd = "docker compose -f `"\$Compose`" build" + (\$NoCache ? " --no-cache" : "")
+if (\$DryRun) { Write-Host "[DRY] \$Cmd"; exit 0 }
+Write-Host \$Cmd; iex \$Cmd
+docker compose -f "`$Compose" up -d
+"@ | Out-File -Encoding UTF8 -FilePath $RebuildPS1 -Force
+
+# Register commands in registry\commands.json (append without touching existing)
+if (!(Test-Path $RegistryPath)) {
+  # Initialize minimal registry if missing
+  @'{ "commands": [] }'@ | Out-File -Encoding UTF8 -FilePath $RegistryPath -Force
+}
+$reg = Get-Content -Raw -Path $RegistryPath | ConvertFrom-Json
+function Add-Cmd($name,$script,$desc) {
+  if (-not ($reg.commands | Where-Object { $_.name -eq $name })) {
+    $obj = [pscustomobject]@{ name=$name; script=$script; desc=$desc }
+    $reg.commands += $obj
+  }
+}
+Add-Cmd "gallery-docker-init"  "scripts\gallery_docker_init.ps1" "Scaffold Dockerized memorial gallery (idempotent)."
+Add-Cmd "gallery-docker-up"    "scripts\gallery_docker_up.ps1"   "Build and start memorial gallery container."
+Add-Cmd "gallery-docker-down"  "scripts\gallery_docker_down.ps1" "Stop/remove memorial gallery container."
+Add-Cmd "gallery-docker-rebuild" "scripts\gallery_docker_rebuild.ps1" "Rebuild image and restart container."
+
+$reg | ConvertTo-Json -Depth 5 | Out-File -Encoding UTF8 -FilePath $RegistryPath -Force
+
+# Log
+$Log = Join-Path $Logs "orchestrator.log"
+$Stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+"[$Stamp] Run1: scaffolded Dockerized memorial gallery (files + commands)." | Add-Content -Path $Log
+
+Write-Host "Scaffold complete."
+Write-Host "Next: put photos/videos into: $Media"
+Write-Host "Then:  orchestrator run gallery-docker-up"
+'```
+
+**B) (FYI) We rely on your existing pinned deps/registry and extend them with container-local deps; your current pins include `pyyaml==6.0.2`, etc., and your registry already has prior commands we do not modify.** :contentReference[oaicite:2]{index=2} :contentReference[oaicite:3]{index=3}
+
+---
+
+### One‑command run instruction
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\PaulMarzocchi\Vivarium\Orchestrator\scripts\gallery_docker_init.ps1"
+
+Quick verification (acceptance for this run)
+
+Files exist:
+
+Test-Path "C:\Users\PaulMarzocchi\Vivarium\Orchestrator\projects\memorial-gallery\app\Dockerfile"
+Test-Path "C:\Users\PaulMarzocchi\Vivarium\Orchestrator\projects\memorial-gallery\docker-compose.yml"
+Test-Path "C:\Users\PaulMarzocchi\Vivarium\Orchestrator\registry\commands.json"
+
+
+Commands registered:
+
+Select-String "C:\Users\PaulMarzocchi\Vivarium\Orchestrator\registry\commands.json" -Pattern "gallery-docker-up","gallery-docker-down","gallery-docker-rebuild"
+
+
+Dry-run the start command:
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\PaulMarzocchi\Vivarium\Orchestrator\scripts\gallery_docker_up.ps1" -DryRun
+
+How to run the container (next step)
+
+After you copy a few photos/videos into:
+
+C:\Users\PaulMarzocchi\Vivarium\Orchestrator\projects\memorial-gallery\media\
+
+
+start the container:
+
+orchestrator run gallery-docker-up
+
+
+Then open: http://localhost:8010/
+
+From another device on your network, use: http://<your-computer-ip>:8010/
+To stop/remove the container:
+
+orchestrator run gallery-docker-down
+
+Notes on “world‑reachable”
+
+This container is ready to run on any public host (e.g., a small VPS). Copy the project folder to that host and run docker compose up -d there, or put it behind an existing reverse proxy (Caddy/Traefik/Nginx) with TLS. If you want, in Run 2 I can add a minimal reverse‑proxy compose and docs for a hardened public deploy.

@@ -1,6 +1,8 @@
 __pycache__/
 .venv/
 *.pyc
+.env
+.cloudflared/
 media/*
 !media/.gitkeep
 site/*
