@@ -1,0 +1,16 @@
+version: "3.8"
+services:
+  memorial-gallery:
+    build:
+      context: ./app
+    ports:
+      - "8010:8080"
+    environment:
+      - TITLE=Memorial Gallery
+      - THUMBNAIL_MAX_PX=480
+      - DISPLAY_MAX_PX=1280
+      - SLIDESHOW_INTERVAL_SEC=6
+    volumes:
+      - ./media:/data/media:ro
+      - ./site:/app/site
+    restart: unless-stopped
