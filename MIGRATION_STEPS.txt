@@ -1,0 +1,60 @@
+Frontale Momenti Mori – Migration Checklist
+===========================================
+
+Run these steps on the destination workstation before powering this machine down. They assume Windows with admin rights and Git/Docker available via `winget`.
+
+1. Clone & verify
+   - `git clone https://github.com/Chrysalis-Technologies/Frontale_MomentiMori.git`
+   - `cd Frontale_MomentiMori`
+   - `git status` should show a clean tree on `main`.
+   - Confirm `.env` already contains the production secrets (the file is tracked in this repo). If rotating secrets, edit `.env` before continuing.
+
+2. Install Docker prerequisites
+   - `winget install -e --id Docker.DockerDesktop`
+   - Launch Docker Desktop once so it finishes initialization.
+
+3. Start the gallery stack
+   - `docker compose up -d --build`
+   - Browse `http://localhost:8010/` to verify the memorial gallery renders the content from `media/`.
+
+4. Install Cloudflare Tunnel tooling
+   - `winget install -e --id Cloudflare.cloudflared`
+   - Authenticate: `cloudflared login` (approve domain in browser). This pulls down `cert.pem` into `%USERPROFILE%\.cloudflared`.
+
+5. Recreate the tunnel
+   - `cloudflared tunnel create frontale-gallery`
+   - Create `%USERPROFILE%\.cloudflared\config.yml` with:
+     ```
+     tunnel: frontale-gallery
+     credentials-file: C:\Users\<YOU>\.cloudflared\frontale-gallery.json
+
+     ingress:
+       - hostname: frontale.marzocchi.tech
+         service: http://localhost:8010
+       - service: http_status:404
+     ```
+   - Route DNS: `cloudflared tunnel route dns frontale-gallery frontale.marzocchi.tech`
+   - Run once in foreground to verify: `cloudflared tunnel run frontale-gallery`
+   - After confirming traffic flows, install the service so it starts on boot: `cloudflared service install` then `Start-Service cloudflared`.
+
+6. Validate
+   - From an external device, hit `https://frontale.marzocchi.tech` and ensure it proxies correctly.
+   - Check `docker compose ps` and `Get-Service cloudflared` to confirm both stay healthy.
+
+7. Shutdown checklist
+   - `docker compose logs -f` (briefly) to spot errors.
+   - When satisfied, power down the original machine.
+
+Codex bootstrap prompt (copy/paste)
+-----------------------------------
+Use this exact message with Codex on the destination machine to automate the tunnel install & verification:
+```
+We just cloned Chrysalis-Technologies/Frontale_MomentiMori on this Windows box. Docker Desktop is (or will be) installed and the gallery should run on localhost:8010. Please:
+1. Verify Docker/Docker Compose are installed; install via winget if missing.
+2. Run `docker compose up -d --build` and confirm the gallery serves locally.
+3. Install Cloudflare's tunnel client via `winget install -e --id Cloudflare.cloudflared`.
+4. Authenticate with `cloudflared login`, create a tunnel named `frontale-gallery`, and configure it to forward `frontale.marzocchi.tech` to http://localhost:8010 exactly as documented in MIGRATION_STEPS.txt.
+5. Install the cloudflared service so the tunnel survives reboots, then show me the status of both Docker containers and the cloudflared service.
+```
+
+If Codex reports any failures, capture the logs (`docker compose logs`, `cloudflared tunnel logs frontale-gallery`) before retrying.
