@@ -1,0 +1,11 @@
+# Copy this file to cloudflared/config.yml once your tunnel credentials JSON exists
+# inside the same folder. Make sure the tunnel name matches the one you created.
+tunnel: frontale-momentimori
+credentials-file: /etc/cloudflared/frontale-momentimori.json
+
+ingress:
+  # Replace the hostname if you plan to serve a different domain/subdomain.
+  - hostname: frontale.marzocchi.tech
+    # The memorial-gallery service is reachable from the cloudflared container by name.
+    service: http://memorial-gallery:8080
+  - service: http_status:404

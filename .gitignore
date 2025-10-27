@@ -7,3 +7,5 @@ __pycache__/
 #!media/.gitkeep
 #site/*
 #!site/.gitkeep
+cloudflared/config.yml
+cloudflared/*.json

@@ -84,6 +84,41 @@ Leave those fields blank to keep everything local.
    }
    ```
 
+### Expose via Cloudflare Tunnel
+
+If you do not have a public VPS handy, you can let Cloudflare proxy the gallery by
+running the bundled tunnel container. The workflow is:
+
+1. Authenticate the included `cloudflared.exe` binary against your Cloudflare
+   account and zone:
+   ```powershell
+   .\bin\cloudflared.exe login
+   ```
+2. Create (or reuse) a tunnel, then copy its credentials JSON into the repo:
+   ```powershell
+   .\bin\cloudflared.exe tunnel create frontale-momentimori
+   Copy-Item "$env:USERPROFILE\.cloudflared\*.json" .\cloudflared\frontale-momentimori.json
+   ```
+3. Duplicate the template config into `cloudflared/config.yml`, updating the
+   `tunnel`, `credentials-file`, and `hostname` entries if you diverge from the
+   defaults. The provided template already targets
+   `https://frontale.marzocchi.tech` and routes traffic to
+   `http://memorial-gallery:8080`.
+4. Point the hostname at the tunnel:
+   ```powershell
+   .\bin\cloudflared.exe tunnel route dns frontale-momentimori frontale.marzocchi.tech
+   ```
+5. Start the gallery and tunnel together:
+   ```powershell
+   docker compose --profile cloudflare up -d --build
+   ```
+
+The `cloudflared` service mounts `./cloudflared` as read-only and runs
+`cloudflared tunnel --config /etc/cloudflared/config.yml run`, so any updates to
+your config file or credentials only require a `docker compose restart
+cloudflared`. See `cloudflared/README.md` for a slightly more detailed, copy/
+paste friendly checklist.
+
 ## Customization
 
 Environment variables in `docker-compose.yml` control the title, thumbnail/display geometry, and slideshow timing. Adjust them, run `docker compose up -d --build`, and the entrypoint will regenerate the static site with the new settings.
