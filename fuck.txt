@@ -1,0 +1,7 @@
+# APPLICATION_CLIENT_ID=<guid>
+# APPLICATION_OBJECT_ID=<guid>
+# DIRECTORY_TENANT_ID=<tenant-guid>
+# FRONTALE_UPLOADER_SECRET=<client-secret>
+# FRONTALE_SECRET_ID=<guid>
+# UPLOAD_TARGET_USER_UPN=<user@domain>
+# PUBLIC_BASE_URL=https://frontale.example.com
