@@ -3,7 +3,7 @@ __pycache__/
 *.pyc
 .env
 .cloudflared/
-media/*
-!media/.gitkeep
-site/*
-!site/.gitkeep
+#media/*
+#!media/.gitkeep
+#site/*
+#!site/.gitkeep
