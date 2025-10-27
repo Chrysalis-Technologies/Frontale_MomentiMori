@@ -9,6 +9,10 @@ THUMB = int(os.getenv("THUMBNAIL_MAX_PX", "480"))
 DISPLAY = int(os.getenv("DISPLAY_MAX_PX", "1280"))
 SLIDE = int(os.getenv("SLIDESHOW_INTERVAL_SEC", "6"))
 
+APP_DIR = Path(__file__).resolve().parent
+BACKGROUND_SRC = APP_DIR / "static" / "img" / "sicily-landscape.jpg"
+BACKGROUND_DST = Path(SITE_DIR) / "background.jpg"
+
 IMG_EXT = {".jpg",".jpeg",".png",".bmp",".gif",".webp"}
 VID_EXT = {".mp4",".webm",".mov",".m4v",".avi"}
 
@@ -16,6 +20,11 @@ def ensure_dirs():
     Path(SITE_DIR).mkdir(parents=True, exist_ok=True)
     for d in ("thumbs","images","videos"):
         Path(SITE_DIR, d).mkdir(parents=True, exist_ok=True)
+    if BACKGROUND_SRC.exists():
+        try:
+            shutil.copy2(BACKGROUND_SRC, BACKGROUND_DST)
+        except Exception as err:
+            print(f"Could not copy background image: {err}", file=sys.stderr)
 
 def safe_name(p: Path) -> str:
     base = re.sub(r"[^A-Za-z0-9._-]+", "_", p.stem)
@@ -62,8 +71,9 @@ def scan_items():
 
 def write_index(items):
     data_json = json.dumps(items, ensure_ascii=False)
-    css = """body{margin:0;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b0c10;color:#eee}
-header{padding:12px 16px;background:#111;position:sticky;top:0;z-index:3;border-bottom:1px solid #222;display:flex;align-items:center;justify-content:space-between;gap:12px}
+    css = """body{margin:0;font-family:system-ui,Segoe UI,Arial,sans-serif;background:#0b0c10 url('background.jpg') center/cover fixed;color:#eee;min-height:100vh;position:relative}
+body::before{content:"";position:fixed;inset:0;background:rgba(7,8,11,.78);backdrop-filter:blur(2px);z-index:-1}
+header{padding:12px 16px;background:rgba(17,17,17,.92);position:sticky;top:0;z-index:3;border-bottom:1px solid #222;display:flex;align-items:center;justify-content:space-between;gap:12px}
 h1{margin:0;font-size:18px}
 .cta{color:#fff;background:#2d7cff;border-radius:999px;padding:8px 16px;text-decoration:none;font-size:13px;font-weight:600;transition:background .2s}
 .cta:hover{background:#3c8bff}
@@ -104,7 +114,7 @@ function open(i){{
 function close(){{lb.classList.remove('show'); stop();}}
 function next(){{open(idx+1);}}
 function prev(){{open(idx-1);}}
-function play(){{ if(timer){{stop();}} else {{timer=setInterval(next,INTERVAL); btnPlay.textContent='Pause';}}}}
+function play(){{ if(timer){{stop();}} else {{ if(idx<0 && DATA.length){{open(0);}} timer=setInterval(next,INTERVAL); btnPlay.textContent='Pause';}}}}
 function stop(){{ if(timer){{clearInterval(timer); timer=null;}} btnPlay.textContent='Play';}}
 btnNext.onclick=next; btnPrev.onclick=prev; btnPlay.onclick=play; btnClose.onclick=close;
 window.addEventListener('keydown',e=>{{ if(e.key==='Escape') close(); if(e.key==='ArrowRight') next(); if(e.key==='ArrowLeft') prev(); }});
